@@ -61,28 +61,28 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  # 🔹 Download tar.gz an toàn
+  # 🔹 Tải tar.gz chính thức
   URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
   TAR_FILE="3proxy-0.8.6.tar.gz"
 
   echo "[+] Downloading 3proxy source..."
   wget -O "$TAR_FILE" "$URL"
 
-  # 🔹 Check file size
+  # 🔹 Check dung lượng file
   FILE_SIZE=$(stat -c%s "$TAR_FILE")
   if [ "$FILE_SIZE" -lt 1000000 ]; then
-    echo "❌ Downloaded file too small, may be corrupt. Exiting."
-    exit 1
+      echo "❌ Downloaded file too small, may be corrupt. Exiting."
+      exit 1
   fi
 
-  # 🔹 Extract
+  echo "[+] Extracting..."
   tar -xzf "$TAR_FILE"
   cd 3proxy-0.8.6
 
-  # 🔥 Patch GCC >=10 bug
+  # 🔥 Patch GCC >=10
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
 
-  # 🔹 Build from root folder (not src/)
+  # Build từ thư mục gốc
   make -f Makefile.Linux clean
   make -f Makefile.Linux
 
