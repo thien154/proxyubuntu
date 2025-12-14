@@ -62,6 +62,7 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
+  # 🔹 Tải source chính thức 3proxy 0.8.6
   URL="https://github.com/z3APA3A/3proxy/archive/0.8.6.tar.gz"
   wget -qO- "$URL" | tar -xz
 
@@ -70,6 +71,7 @@ install_3proxy() {
   # 🔥 FIX GCC >=10 multiple definition bug
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
 
+  # Build từ thư mục gốc (không vào src/)
   make -f Makefile.Linux clean
   make -f Makefile.Linux
 
