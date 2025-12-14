@@ -17,17 +17,33 @@ gen64() {
     echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
 }
 
-# Install 3proxy
+# Install 3proxy and required packages
 install_3proxy() {
-    echo "Installing 3proxy"
+    echo "Installing 3proxy and required packages..."
+
+    # Install necessary dependencies
+    sudo apt-get update -y
+    sudo apt-get install -y gcc make libssl-dev zlib1g-dev curl iptables zip
+
+    # Download and extract 3proxy
     URL="https://raw.githubusercontent.com/quayvlog/quayvlog/main/3proxy-3proxy-0.8.6.tar.gz"
     wget -qO- $URL | tar -xzvf -
     cd 3proxy-3proxy-0.8.6
+
+    # Compile 3proxy
     make -f Makefile.Linux
+    if [ ! -f src/3proxy ]; then
+        echo "Error: 3proxy binary not found. Compilation failed!"
+        exit 1
+    fi
+
+    # Create necessary directories and copy files
     mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
     cp src/3proxy /usr/local/etc/3proxy/bin/
     cp ./scripts/rc.d/proxy.sh /etc/systemd/system/3proxy.service
     chmod +x /etc/systemd/system/3proxy.service
+
+    # Enable and start the service
     systemctl enable 3proxy
     systemctl start 3proxy
     cd $WORKDIR
@@ -89,17 +105,9 @@ EOF
 # Generate ifconfig configuration
 gen_ifconfig() {
     cat <<EOF
-$(awk -F "/" '{print "ifconfig ens5 inet6 add " $5 "/64"}' ${WORKDATA})
+$(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
-
-# Installing necessary packages
-echo "Installing apps"
-apt-get update -y
-apt-get install -y gcc net-tools bsdtar zip iptables curl make
-
-# Install 3proxy
-install_3proxy
 
 # Setting up working directory
 echo "Working folder = /home/proxy-installer"
@@ -133,18 +141,21 @@ Description=Proxy Setup
 After=network.target
 
 [Service]
-ExecStartPre=/bin/bash ${WORKDIR}/boot_iptables.sh
-ExecStartPre=/bin/bash ${WORKDIR}/boot_ifconfig.sh
+ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
+ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+Restart=on-failure
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 # Reload systemd and enable the service
-systemctl daemon-reload
-systemctl enable proxy-setup.service
-systemctl start proxy-setup.service
+sudo systemctl daemon-reload
+sudo systemctl enable proxy-setup.service
+sudo systemctl start proxy-setup.service
 
 # Generate 3proxy configuration
 gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
