@@ -95,12 +95,10 @@ EOF
 
 # Installing necessary packages
 echo "Installing apps"
-apt-get update -y
-apt-get install -y gcc net-tools bsdtar zip iptables curl make
+sudo apt-get update -y
+sudo apt-get install -y gcc net-tools tar zip iptables curl make
 
-install_3proxy
-
-# Setting up working directory
+# Set up working directory
 echo "Working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
@@ -121,4 +119,33 @@ LAST_PORT=$(($FIRST_PORT + $COUNT))
 
 # Generate data and configuration files
 gen_data >$WORKDIR/data.txt
-gen_iptable_
+gen_iptables >$WORKDIR/boot_iptables.sh
+gen_ifconfig >$WORKDIR/boot_ifconfig.sh
+chmod +x ${WORKDIR}/boot_*.sh
+
+# Create systemd service to start 3proxy and run scripts at boot
+cat >/etc/systemd/system/proxy-setup.service <<EOF
+[Unit]
+Description=Proxy Setup
+After=network.target
+
+[Service]
+ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
+ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
+ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload systemd and enable the service
+systemctl daemon-reload
+systemctl enable proxy-setup.service
+systemctl start proxy-setup.service
+
+# Generate 3proxy configuration
+gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
+
+# Generate proxy file and upload it
+gen_proxy_file_for_user
+upload_proxy
