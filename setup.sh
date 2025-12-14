@@ -20,17 +20,26 @@ gen64() {
 # Install 3proxy and required packages
 install_3proxy() {
     echo "Installing 3proxy and required packages..."
-
+    
     # Install necessary dependencies
     sudo apt-get update -y
     sudo apt-get install -y gcc make libssl-dev zlib1g-dev curl iptables zip
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to install dependencies!"
+        exit 1
+    fi
 
     # Download and extract 3proxy
     URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
     wget -qO- $URL | tar -xzvf -
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to download 3proxy!"
+        exit 1
+    fi
     cd 3proxy-0.8.6
 
     # Compile 3proxy
+    echo "Compiling 3proxy..."
     make -f Makefile.Linux
     if [ ! -f src/3proxy ]; then
         echo "Error: 3proxy binary not found. Compilation failed!"
@@ -51,6 +60,7 @@ install_3proxy() {
 
 # Generate 3proxy configuration
 gen_3proxy() {
+    echo "Generating 3proxy configuration..."
     cat <<EOF
 daemon
 maxconn 1000
@@ -72,6 +82,7 @@ EOF
 
 # Generate proxy file for users
 gen_proxy_file_for_user() {
+    echo "Generating proxy file..."
     cat >proxy.txt <<EOF
 $(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
 EOF
@@ -79,6 +90,7 @@ EOF
 
 # Upload proxy file
 upload_proxy() {
+    echo "Uploading proxy file..."
     local PASS=$(random)
     zip --password $PASS proxy.zip proxy.txt
     URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
@@ -90,6 +102,7 @@ upload_proxy() {
 
 # Generate data for proxies
 gen_data() {
+    echo "Generating proxy data..."
     seq $FIRST_PORT $LAST_PORT | while read port; do
         echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
     done
@@ -97,6 +110,7 @@ gen_data() {
 
 # Generate iptables rules
 gen_iptables() {
+    echo "Generating iptables rules..."
     cat <<EOF
     $(awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 "  -m state --state NEW -j ACCEPT"}' ${WORKDATA}) 
 EOF
@@ -104,6 +118,7 @@ EOF
 
 # Generate ifconfig configuration
 gen_ifconfig() {
+    echo "Generating ifconfig configuration..."
     cat <<EOF
 $(awk -F "/" '{print "ifconfig ens5 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
@@ -135,6 +150,7 @@ gen_ifconfig >$WORKDIR/boot_ifconfig.sh
 chmod +x ${WORKDIR}/boot_*.sh
 
 # Setup systemd to run iptables and ifconfig at boot
+echo "Setting up systemd service..."
 cat >/etc/systemd/system/proxy-setup.service <<EOF
 [Unit]
 Description=Proxy Setup
