@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -e
-
 # ===============================
 # REQUIRE ROOT
 # ===============================
@@ -8,7 +7,6 @@ if [ "$EUID" -ne 0 ]; then
   echo "❌ Run as root"
   exit 1
 fi
-
 # ===============================
 # AUTO DETECT INTERFACE
 # ===============================
@@ -18,7 +16,6 @@ if [ -z "$IFACE" ]; then
   exit 1
 fi
 echo "[+] Interface: $IFACE"
-
 # ===============================
 # INSTALL DEPENDENCIES
 # ===============================
@@ -35,7 +32,6 @@ apt install -y \
   libpam0g-dev \
   netfilter-persistent \
   iptables-persistent
-
 # ===============================
 # UTILS
 # ===============================
@@ -43,7 +39,6 @@ random() {
   tr </dev/urandom -dc A-Za-z0-9 | head -c5
   echo
 }
-
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
 gen64() {
   ip64() {
@@ -51,9 +46,8 @@ gen64() {
   }
   echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
 }
-
 # ===============================
-# BUILD & PATCH 3PROXY
+# BUILD & PATCH 3PROXY (ĐÃ SỬA LỖI BUILD)
 # ===============================
 install_3proxy() {
   echo "[+] Building 3proxy (auto patch GCC bug)"
@@ -61,30 +55,37 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  # 🔹 Dùng link thien154
   URL="https://github.com/thien154/proxyubuntu/raw/refs/heads/master/3proxy-3proxy-0.8.6.tar.gz"
   TAR_FILE="3proxy-3proxy-0.8.6.tar.gz"
 
   echo "[+] Downloading 3proxy source from thien154..."
   wget -O "$TAR_FILE" "$URL"
 
- 
   echo "[+] Extracting..."
   tar -xzf "$TAR_FILE"
   cd 3proxy-3proxy-0.8.6
 
-  # 🔥 Patch GCC >=10
+  # Patch cho GCC >=10
+  echo "[+] Applying -fcommon patch for modern GCC..."
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
 
-  # Build từ thư mục gốc
-  make -f Makefile.Linux clean
+  # SỬA LỖI: Build lần đầu để tạo Makefile.var, sau đó mới clean và build lại
+  echo "[+] First build to initialize..."
   make -f Makefile.Linux
 
+  echo "[+] Cleaning object files..."
+  make -f Makefile.Linux clean
+
+  echo "[+] Final build..."
+  make -f Makefile.Linux
+
+  # Install
   mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
   cp src/3proxy /usr/local/etc/3proxy/bin/
   setcap cap_net_bind_service=+ep /usr/local/etc/3proxy/bin/3proxy
-}
 
+  echo "[+] 3proxy built and installed successfully!"
+}
 # ===============================
 # GENERATORS
 # ===============================
@@ -93,15 +94,12 @@ gen_data() {
     echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
   done
 }
-
 gen_iptables() {
   awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 " -j ACCEPT"}' "$WORKDATA"
 }
-
 gen_ip6() {
   awk -F "/" -v iface="$IFACE" '{print "ip -6 addr add " $5 "/64 dev " iface}' "$WORKDATA"
 }
-
 gen_3proxy() {
 cat <<EOF
 maxconn 1000
@@ -111,17 +109,13 @@ setgid nogroup
 setuid nobody
 flush
 auth strong
-
 users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' "$WORKDATA")
-
 $(awk -F "/" '{print "auth strong\nallow " $1 "\nproxy -6 -n -a -p" $4 " -i" $3 " -e"$5"\n"}' "$WORKDATA")
 EOF
 }
-
 gen_proxy_file_for_user() {
   awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' "$WORKDATA" > proxy.txt
 }
-
 # ===============================
 # SYSTEMD SERVICE
 # ===============================
@@ -130,22 +124,18 @@ cat >/etc/systemd/system/3proxy.service <<EOF
 [Unit]
 Description=3Proxy Service
 After=network.target
-
 [Service]
 Type=simple
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 Restart=always
 RestartSec=2
 LimitNOFILE=10048
-
 [Install]
 WantedBy=multi-user.target
 EOF
-
   systemctl daemon-reload
   systemctl enable 3proxy
 }
-
 # ===============================
 # MAIN
 # ===============================
@@ -168,7 +158,6 @@ FIRST_PORT=10000
 LAST_PORT=$((FIRST_PORT + COUNT - 1))
 
 gen_data > "$WORKDATA"
-
 gen_iptables > iptables.rules
 gen_ip6 > ipv6.rules
 
