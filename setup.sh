@@ -1,15 +1,12 @@
 #!/bin/bash
 
-# Function to generate random string
 random() {
     tr </dev/urandom -dc A-Za-z0-9 | head -c5
     echo
 }
 
-# Define an array for hex characters
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
 
-# Function to generate a 64-bit address
 gen64() {
     ip64() {
         echo "${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}"
@@ -17,44 +14,25 @@ gen64() {
     echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
 }
 
-# Install 3proxy and required packages
 install_3proxy() {
-    echo "Installing 3proxy and required packages..."
+    echo "Installing 3proxy (latest version 0.9.5 via .deb package)..."
     
-    sudo apt-get update -y
-    sudo apt-get install -y build-essential gcc make libssl-dev zlib1g-dev curl iptables zip wget
+    sudo apt update -y
+    sudo apt install -y curl zip wget iptables
     
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to install dependencies!"
-        exit 1
-    fi
-
-    # Download latest 3proxy (0.9.5)
-    URL="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz"
-    wget -qO- $URL | tar -xzvf -
+    # Download và install deb package mới nhất
+    wget https://github.com/3proxy/3proxy/releases/download/0.9.5/3proxy-0.9.5.x86_64.deb
+    sudo dpkg -i 3proxy-0.9.5.x86_64.deb
     
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to download 3proxy!"
-        exit 1
+        echo "Error installing 3proxy deb package! Trying to fix dependencies..."
+        sudo apt --fix-broken install -y
     fi
     
-    cd 3proxy-0.9.5 || exit 1
-
-    echo "Compiling 3proxy..."
-    make -f Makefile.Linux
-    
-    if [ ! -f src/3proxy ]; then
-        echo "Error: 3proxy binary not found. Compilation failed!"
-        exit 1
-    fi
-
-    # Install binaries and directories
-    sudo mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
-    sudo cp src/3proxy /usr/local/etc/3proxy/bin/
-    cd $WORKDIR || exit 1
+    # Tạo thư mục cần thiết (nếu chưa có)
+    sudo mkdir -p /usr/local/etc/3proxy/{logs,stat}
 }
 
-# Generate 3proxy configuration
 gen_3proxy() {
     cat <<EOF
 daemon
@@ -75,14 +53,12 @@ $(awk -F "/" '{print "auth strong\n" \
 EOF
 }
 
-# Generate proxy file for users
 gen_proxy_file_for_user() {
     cat > proxy.txt <<EOF
 $(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
 EOF
 }
 
-# Upload proxy file
 upload_proxy() {
     local PASS=$(random)
     zip --password $PASS proxy.zip proxy.txt
@@ -93,45 +69,39 @@ upload_proxy() {
     echo "Password: ${PASS}"
 }
 
-# Generate data for proxies
 gen_data() {
     seq $FIRST_PORT $LAST_PORT | while read port; do
         echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
     done
 }
 
-# Generate iptables rules
 gen_iptables() {
     awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 " -m state --state NEW -j ACCEPT"}' ${WORKDATA}
 }
 
-# Generate ifconfig configuration (changed to ens3)
 gen_ifconfig() {
-    awk -F "/" '{print "ip -6 addr add " $5 "/64 dev ens3"}' ${WORKDATA}
+    awk -F "/" '{print "ip -6 addr add " $5 "/64 dev ens5"}' ${WORKDATA}  # ĐÃ SỬA THÀNH ens5
 }
 
-# Working directory
 echo "Working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
-mkdir -p $WORKDIR && cd $WORKDIR || exit 1
+sudo mkdir -p $WORKDIR && cd $WORKDIR
 
-# Get public IPs
 IP4=$(curl -4 -s icanhazip.com)
 if [ -z "$IP4" ]; then
-    echo "Error: Cannot get IPv4 address!"
+    echo "Error: Cannot get IPv4!"
     exit 1
 fi
 
 IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 if [ -z "$IP6" ]; then
-    echo "Warning: Cannot get IPv6 prefix, IPv6 proxies may not work properly."
-    IP6="fc00"  # fallback, but likely won't work
+    echo "Warning: No IPv6 prefix detected. IPv6 rotating may not work."
+    IP6="fc00"  # fallback (không khuyến khích)
 fi
 
-echo "Internal IPv4 = ${IP4}. External IPv6 prefix = ${IP6}"
+echo "Internal IPv4 = ${IP4}. IPv6 prefix = ${IP6}"
 
-# Ask for number of proxies
 echo "How many proxies do you want to create? (Example: 500)"
 read COUNT
 
@@ -143,7 +113,7 @@ fi
 FIRST_PORT=10000
 LAST_PORT=$(($FIRST_PORT + $COUNT - 1))
 
-# Generate files
+# Generate data và scripts
 gen_data > $WORKDATA
 gen_iptables > $WORKDIR/boot_iptables.sh
 gen_ifconfig > $WORKDIR/boot_ifconfig.sh
@@ -152,52 +122,37 @@ chmod +x $WORKDIR/boot_*.sh
 # Install 3proxy
 install_3proxy
 
-# Create systemd service
-cat > /etc/systemd/system/proxy-setup.service <<EOF
+# Tạo systemd service cho 3proxy
+sudo bash -c 'cat > /etc/systemd/system/3proxy.service <<EOF
 [Unit]
-Description=Proxy Setup Service
-After=network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/bash /home/proxy-installer/boot_iptables.sh
-ExecStart=/bin/bash /home/proxy-installer/boot_ifconfig.sh
-ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Better: separate service for 3proxy
-cat > /etc/systemd/system/3proxy.service <<EOF
-[Unit]
-Description=3proxy Proxy Server
+Description=3Proxy Server
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
+ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
+ExecStart=/usr/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 Restart=on-failure
 User=root
-WorkingDirectory=/usr/local/etc/3proxy
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF'
 
 sudo systemctl daemon-reload
 sudo systemctl enable 3proxy.service
 
-# Apply iptables and IPv6 now
+# Apply iptables và IPv6 ngay lập tức
 sudo bash $WORKDIR/boot_iptables.sh
 sudo bash $WORKDIR/boot_ifconfig.sh
 
-# Generate config and start
+# Generate config và start
 gen_3proxy > /usr/local/etc/3proxy/3proxy.cfg
 gen_proxy_file_for_user
 upload_proxy
 
 sudo systemctl start 3proxy.service
 
-echo "Installation completed! Proxies are running."
+echo "Done! Proxies are up and running."
+echo "Check status: sudo systemctl status 3proxy.service"
