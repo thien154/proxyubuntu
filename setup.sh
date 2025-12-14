@@ -96,7 +96,7 @@ EOF
 # Installing necessary packages
 echo "Installing apps"
 apt-get update -y
-apt-get install -y gcc net-tools bsdtar zip
+apt-get install -y gcc net-tools bsdtar zip iptables curl
 
 install_3proxy
 
@@ -125,19 +125,28 @@ gen_iptables >$WORKDIR/boot_iptables.sh
 gen_ifconfig >$WORKDIR/boot_ifconfig.sh
 chmod +x ${WORKDIR}/boot_*.sh
 
-# Add commands to rc.local (if enabled) or systemd startup
-cat >>/etc/rc.local <<EOF
-bash ${WORKDIR}/boot_iptables.sh
-bash ${WORKDIR}/boot_ifconfig.sh
-ulimit -n 10048
-systemctl start 3proxy
+# Setup systemd to run iptables and ifconfig at boot
+cat >/etc/systemd/system/proxy-setup.service <<EOF
+[Unit]
+Description=Proxy Setup
+After=network.target
+
+[Service]
+ExecStartPre=/bin/bash ${WORKDIR}/boot_iptables.sh
+ExecStartPre=/bin/bash ${WORKDIR}/boot_ifconfig.sh
+ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+
+[Install]
+WantedBy=multi-user.target
 EOF
+
+# Reload systemd and enable the service
+systemctl daemon-reload
+systemctl enable proxy-setup.service
+systemctl start proxy-setup.service
 
 # Generate 3proxy configuration
 gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
-
-# Execute rc.local or directly run the necessary setup
-bash /etc/rc.local
 
 # Generate proxy file and upload it
 gen_proxy_file_for_user
