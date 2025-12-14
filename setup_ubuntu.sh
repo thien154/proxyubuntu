@@ -62,10 +62,10 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  URL="https://raw.githubusercontent.com/thien154/proxyubuntu/master/3proxy-3proxy-0.8.6.tar.gz"
+  URL="https://github.com/z3APA3A/3proxy/archive/0.8.6.tar.gz"
   wget -qO- "$URL" | tar -xz
 
-  cd 3proxy-3proxy-0.8.6
+  cd 3proxy-0.8.6
 
   # 🔥 FIX GCC >=10 multiple definition bug
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
@@ -97,7 +97,6 @@ gen_ip6() {
 
 gen_3proxy() {
 cat <<EOF
-daemon
 maxconn 1000
 nscache 65536
 timeouts 1 5 30 60 180 1800 15 60
@@ -108,10 +107,7 @@ auth strong
 
 users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' "$WORKDATA")
 
-$(awk -F "/" '{print "auth strong\n" \
-"allow " $1 "\n" \
-"proxy -6 -n -a -p" $4 " -i" $3 " -e"$5"\n" \
-"flush\n"}' "$WORKDATA")
+$(awk -F "/" '{print "auth strong\nallow " $1 "\nproxy -6 -n -a -p" $4 " -i" $3 " -e"$5"\n"}' "$WORKDATA")
 EOF
 }
 
