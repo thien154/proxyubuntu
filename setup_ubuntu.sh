@@ -61,11 +61,11 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  # 🔹 Tải tar.gz từ GitHub chính xác
-  URL="https://github.com/3proxy/3proxy/archive/0.8.6.tar.gz"
-  TAR_FILE="3proxy-0.8.6.tar.gz"
+  # 🔹 Dùng link thien154
+  URL="https://github.com/thien154/proxyubuntu/raw/refs/heads/master/3proxy-3proxy-0.8.6.tar.gz"
+  TAR_FILE="3proxy-3proxy-0.8.6.tar.gz"
 
-  echo "[+] Downloading 3proxy source..."
+  echo "[+] Downloading 3proxy source from thien154..."
   wget -O "$TAR_FILE" "$URL"
 
   # 🔹 Check dung lượng file
@@ -77,7 +77,7 @@ install_3proxy() {
 
   echo "[+] Extracting..."
   tar -xzf "$TAR_FILE"
-  cd 3proxy-0.8.6
+  cd 3proxy-3proxy-0.8.6
 
   # 🔥 Patch GCC >=10
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
