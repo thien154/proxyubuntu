@@ -68,13 +68,6 @@ install_3proxy() {
   echo "[+] Downloading 3proxy source from thien154..."
   wget -O "$TAR_FILE" "$URL"
 
-  # 🔹 Check dung lượng file
-  FILE_SIZE=$(stat -c%s "$TAR_FILE")
-  if [ "$FILE_SIZE" -lt 1000000 ]; then
-      echo "❌ Downloaded file too small, may be corrupt. Exiting."
-      exit 1
-  fi
-
   echo "[+] Extracting..."
   tar -xzf "$TAR_FILE"
   cd 3proxy-3proxy-0.8.6
