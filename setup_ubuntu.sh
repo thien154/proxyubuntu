@@ -5,7 +5,7 @@ set -e
 # REQUIRE ROOT
 # ===============================
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run as root"
+  echo "❌ Run as root"
   exit 1
 fi
 
@@ -17,21 +17,22 @@ if [ -z "$IFACE" ]; then
   echo "❌ Cannot detect network interface"
   exit 1
 fi
-echo "[+] Using network interface: $IFACE"
+echo "[+] Interface: $IFACE"
 
 # ===============================
 # INSTALL DEPENDENCIES
 # ===============================
-echo "[+] Installing required packages"
 apt update -y
 apt install -y \
   build-essential \
   wget \
   curl \
   tar \
-  libcap2-bin \
   zip \
   iproute2 \
+  libcap2-bin \
+  libssl-dev \
+  libpam0g-dev \
   netfilter-persistent \
   iptables-persistent
 
@@ -52,10 +53,11 @@ gen64() {
 }
 
 # ===============================
-# INSTALL 3PROXY
+# BUILD & PATCH 3PROXY
 # ===============================
 install_3proxy() {
-  echo "[+] Installing 3proxy"
+  echo "[+] Building 3proxy (auto patch GCC bug)"
+
   BUILD_DIR="/opt/3proxy-build"
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
@@ -64,11 +66,15 @@ install_3proxy() {
   wget -qO- "$URL" | tar -xz
 
   cd 3proxy-3proxy-0.8.6
+
+  # 🔥 FIX GCC >=10 multiple definition bug
+  sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
+
+  make -f Makefile.Linux clean
   make -f Makefile.Linux
 
   mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
   cp src/3proxy /usr/local/etc/3proxy/bin/
-
   setcap cap_net_bind_service=+ep /usr/local/etc/3proxy/bin/3proxy
 }
 
@@ -125,7 +131,6 @@ After=network.target
 [Service]
 Type=forking
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
-ExecReload=/bin/kill -HUP \$MAINPID
 Restart=always
 LimitNOFILE=10048
 
@@ -133,7 +138,6 @@ LimitNOFILE=10048
 WantedBy=multi-user.target
 EOF
 
-  systemctl daemon-reexec
   systemctl daemon-reload
   systemctl enable 3proxy
 }
@@ -166,23 +170,20 @@ gen_ip6 > ipv6.rules
 
 bash iptables.rules
 bash ipv6.rules
-
 netfilter-persistent save
 
 gen_3proxy > /usr/local/etc/3proxy/3proxy.cfg
 create_service
-
 systemctl start 3proxy
 
 gen_proxy_file_for_user
 
 PASS=$(random)
 zip --password "$PASS" proxy.zip proxy.txt
-
 URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
 
 echo "================================="
-echo "✅ Proxy READY"
+echo "✅ DONE"
 echo "Download: $URL"
 echo "Password: $PASS"
 echo "Format: IP:PORT:LOGIN:PASS"
