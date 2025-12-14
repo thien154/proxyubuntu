@@ -61,8 +61,8 @@ install_3proxy() {
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  # 🔹 Tải tar.gz chính thức
-  URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
+  # 🔹 Tải tar.gz chính xác từ GitHub release
+  URL="https://github.com/z3APA3A/3proxy/archive/0.8.6.tar.gz"
   TAR_FILE="3proxy-0.8.6.tar.gz"
 
   echo "[+] Downloading 3proxy source..."
