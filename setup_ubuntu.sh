@@ -57,21 +57,32 @@ gen64() {
 # ===============================
 install_3proxy() {
   echo "[+] Building 3proxy (auto patch GCC bug)"
-
   BUILD_DIR="/opt/3proxy-build"
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
 
-  # 🔹 Tải source chính thức 3proxy 0.8.6
-  URL="https://github.com/z3APA3A/3proxy/archive/0.8.6.tar.gz"
-  wget -qO- "$URL" | tar -xz
+  # 🔹 Download tar.gz an toàn
+  URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
+  TAR_FILE="3proxy-0.8.6.tar.gz"
 
+  echo "[+] Downloading 3proxy source..."
+  wget -O "$TAR_FILE" "$URL"
+
+  # 🔹 Check file size
+  FILE_SIZE=$(stat -c%s "$TAR_FILE")
+  if [ "$FILE_SIZE" -lt 1000000 ]; then
+    echo "❌ Downloaded file too small, may be corrupt. Exiting."
+    exit 1
+  fi
+
+  # 🔹 Extract
+  tar -xzf "$TAR_FILE"
   cd 3proxy-0.8.6
 
-  # 🔥 FIX GCC >=10 multiple definition bug
+  # 🔥 Patch GCC >=10 bug
   sed -i 's/^CFLAGS =/CFLAGS = -fcommon /' Makefile.Linux
 
-  # Build từ thư mục gốc (không vào src/)
+  # 🔹 Build from root folder (not src/)
   make -f Makefile.Linux clean
   make -f Makefile.Linux
 
