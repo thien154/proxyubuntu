@@ -89,16 +89,19 @@ EOF
 # Generate ifconfig configuration
 gen_ifconfig() {
     cat <<EOF
-$(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
+$(awk -F "/" '{print "ifconfig ens5 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
 
 # Installing necessary packages
 echo "Installing apps"
-sudo apt-get update -y
-sudo apt-get install -y gcc net-tools tar zip iptables curl make
+apt-get update -y
+apt-get install -y gcc net-tools bsdtar zip iptables curl make
 
-# Set up working directory
+# Install 3proxy
+install_3proxy
+
+# Setting up working directory
 echo "Working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
@@ -123,15 +126,15 @@ gen_iptables >$WORKDIR/boot_iptables.sh
 gen_ifconfig >$WORKDIR/boot_ifconfig.sh
 chmod +x ${WORKDIR}/boot_*.sh
 
-# Create systemd service to start 3proxy and run scripts at boot
+# Setup systemd to run iptables and ifconfig at boot
 cat >/etc/systemd/system/proxy-setup.service <<EOF
 [Unit]
 Description=Proxy Setup
 After=network.target
 
 [Service]
-ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
-ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
+ExecStartPre=/bin/bash ${WORKDIR}/boot_iptables.sh
+ExecStartPre=/bin/bash ${WORKDIR}/boot_ifconfig.sh
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 
 [Install]
