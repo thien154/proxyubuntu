@@ -21,46 +21,41 @@ gen64() {
 install_3proxy() {
     echo "Installing 3proxy and required packages..."
     
-    # Install necessary dependencies
     sudo apt-get update -y
-    sudo apt-get install -y gcc make libssl-dev zlib1g-dev curl iptables zip
+    sudo apt-get install -y build-essential gcc make libssl-dev zlib1g-dev curl iptables zip wget
+    
     if [ $? -ne 0 ]; then
         echo "Error: Failed to install dependencies!"
         exit 1
     fi
 
-    # Download and extract 3proxy
-    URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
+    # Download latest 3proxy (0.9.5)
+    URL="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz"
     wget -qO- $URL | tar -xzvf -
+    
     if [ $? -ne 0 ]; then
         echo "Error: Failed to download 3proxy!"
         exit 1
     fi
-    cd 3proxy-0.8.6
+    
+    cd 3proxy-0.9.5 || exit 1
 
-    # Compile 3proxy
     echo "Compiling 3proxy..."
     make -f Makefile.Linux
+    
     if [ ! -f src/3proxy ]; then
         echo "Error: 3proxy binary not found. Compilation failed!"
         exit 1
     fi
 
-    # Create necessary directories and copy files
-    mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
-    cp src/3proxy /usr/local/etc/3proxy/bin/
-    cp ./scripts/rc.d/proxy.sh /etc/systemd/system/3proxy.service
-    chmod +x /etc/systemd/system/3proxy.service
-
-    # Enable and start the service
-    systemctl enable 3proxy
-    systemctl start 3proxy
-    cd $WORKDIR
+    # Install binaries and directories
+    sudo mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
+    sudo cp src/3proxy /usr/local/etc/3proxy/bin/
+    cd $WORKDIR || exit 1
 }
 
 # Generate 3proxy configuration
 gen_3proxy() {
-    echo "Generating 3proxy configuration..."
     cat <<EOF
 daemon
 maxconn 1000
@@ -82,15 +77,13 @@ EOF
 
 # Generate proxy file for users
 gen_proxy_file_for_user() {
-    echo "Generating proxy file..."
-    cat >proxy.txt <<EOF
+    cat > proxy.txt <<EOF
 $(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
 EOF
 }
 
 # Upload proxy file
 upload_proxy() {
-    echo "Uploading proxy file..."
     local PASS=$(random)
     zip --password $PASS proxy.zip proxy.txt
     URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
@@ -102,7 +95,6 @@ upload_proxy() {
 
 # Generate data for proxies
 gen_data() {
-    echo "Generating proxy data..."
     seq $FIRST_PORT $LAST_PORT | while read port; do
         echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
     done
@@ -110,72 +102,102 @@ gen_data() {
 
 # Generate iptables rules
 gen_iptables() {
-    echo "Generating iptables rules..."
-    cat <<EOF
-    $(awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 "  -m state --state NEW -j ACCEPT"}' ${WORKDATA}) 
-EOF
+    awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 " -m state --state NEW -j ACCEPT"}' ${WORKDATA}
 }
 
-# Generate ifconfig configuration
+# Generate ifconfig configuration (changed to ens3)
 gen_ifconfig() {
-    echo "Generating ifconfig configuration..."
-    cat <<EOF
-$(awk -F "/" '{print "ifconfig ens5 inet6 add " $5 "/64"}' ${WORKDATA})
-EOF
+    awk -F "/" '{print "ip -6 addr add " $5 "/64 dev ens3"}' ${WORKDATA}
 }
 
-# Setting up working directory
+# Working directory
 echo "Working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
-mkdir -p $WORKDIR && cd $WORKDIR
+mkdir -p $WORKDIR && cd $WORKDIR || exit 1
 
-# Get public IP addresses
+# Get public IPs
 IP4=$(curl -4 -s icanhazip.com)
+if [ -z "$IP4" ]; then
+    echo "Error: Cannot get IPv4 address!"
+    exit 1
+fi
+
 IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
+if [ -z "$IP6" ]; then
+    echo "Warning: Cannot get IPv6 prefix, IPv6 proxies may not work properly."
+    IP6="fc00"  # fallback, but likely won't work
+fi
 
-echo "Internal IP = ${IP4}. External sub for IPv6 = ${IP6}"
+echo "Internal IPv4 = ${IP4}. External IPv6 prefix = ${IP6}"
 
-# Ask user for number of proxies
-echo "How many proxies do you want to create? Example 500"
+# Ask for number of proxies
+echo "How many proxies do you want to create? (Example: 500)"
 read COUNT
 
+if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -le 0 ]; then
+    echo "Invalid number!"
+    exit 1
+fi
+
 FIRST_PORT=10000
-LAST_PORT=$(($FIRST_PORT + $COUNT))
+LAST_PORT=$(($FIRST_PORT + $COUNT - 1))
 
-# Generate data and configuration files
-gen_data >$WORKDIR/data.txt
-gen_iptables >$WORKDIR/boot_iptables.sh
-gen_ifconfig >$WORKDIR/boot_ifconfig.sh
-chmod +x ${WORKDIR}/boot_*.sh
+# Generate files
+gen_data > $WORKDATA
+gen_iptables > $WORKDIR/boot_iptables.sh
+gen_ifconfig > $WORKDIR/boot_ifconfig.sh
+chmod +x $WORKDIR/boot_*.sh
 
-# Setup systemd to run iptables and ifconfig at boot
-echo "Setting up systemd service..."
-cat >/etc/systemd/system/proxy-setup.service <<EOF
+# Install 3proxy
+install_3proxy
+
+# Create systemd service
+cat > /etc/systemd/system/proxy-setup.service <<EOF
 [Unit]
-Description=Proxy Setup
+Description=Proxy Setup Service
 After=network.target
 
 [Service]
-ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
-ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /home/proxy-installer/boot_iptables.sh
+ExecStart=/bin/bash /home/proxy-installer/boot_ifconfig.sh
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
-Restart=on-failure
-User=root
-Group=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable the service
+# Better: separate service for 3proxy
+cat > /etc/systemd/system/3proxy.service <<EOF
+[Unit]
+Description=3proxy Proxy Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+Restart=on-failure
+User=root
+WorkingDirectory=/usr/local/etc/3proxy
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 sudo systemctl daemon-reload
-sudo systemctl enable proxy-setup.service
-sudo systemctl start proxy-setup.service
+sudo systemctl enable 3proxy.service
 
-# Generate 3proxy configuration
-gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
+# Apply iptables and IPv6 now
+sudo bash $WORKDIR/boot_iptables.sh
+sudo bash $WORKDIR/boot_ifconfig.sh
 
-# Generate proxy file and upload it
+# Generate config and start
+gen_3proxy > /usr/local/etc/3proxy/3proxy.cfg
 gen_proxy_file_for_user
 upload_proxy
+
+sudo systemctl start 3proxy.service
+
+echo "Installation completed! Proxies are running."
