@@ -129,9 +129,10 @@ Description=3Proxy Service
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 Restart=always
+RestartSec=2
 LimitNOFILE=10048
 
 [Install]
