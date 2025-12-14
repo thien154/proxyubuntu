@@ -26,9 +26,9 @@ install_3proxy() {
     sudo apt-get install -y gcc make libssl-dev zlib1g-dev curl iptables zip
 
     # Download and extract 3proxy
-    URL="https://raw.githubusercontent.com/quayvlog/quayvlog/main/3proxy-3proxy-0.8.6.tar.gz"
+    URL="https://github.com/z3APA3A/3proxy/archive/refs/tags/0.8.6.tar.gz"
     wget -qO- $URL | tar -xzvf -
-    cd 3proxy-3proxy-0.8.6
+    cd 3proxy-0.8.6
 
     # Compile 3proxy
     make -f Makefile.Linux
