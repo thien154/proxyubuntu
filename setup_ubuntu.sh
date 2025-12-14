@@ -1,158 +1,189 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -e
 
+# ===============================
+# REQUIRE ROOT
+# ===============================
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ Please run as root"
+  exit 1
+fi
+
+# ===============================
+# AUTO DETECT INTERFACE
+# ===============================
+IFACE=$(ip -o -4 route show to default | awk '{print $5}' | head -n1)
+if [ -z "$IFACE" ]; then
+  echo "❌ Cannot detect network interface"
+  exit 1
+fi
+echo "[+] Using network interface: $IFACE"
+
+# ===============================
+# INSTALL DEPENDENCIES
+# ===============================
+echo "[+] Installing required packages"
+apt update -y
+apt install -y \
+  build-essential \
+  wget \
+  curl \
+  tar \
+  libcap2-bin \
+  zip \
+  iproute2 \
+  netfilter-persistent \
+  iptables-persistent
+
+# ===============================
+# UTILS
+# ===============================
 random() {
-    tr </dev/urandom -dc A-Za-z0-9 | head -c5
-    echo
+  tr </dev/urandom -dc A-Za-z0-9 | head -c5
+  echo
 }
 
 array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
-
 gen64() {
-    ip64() {
-        echo "${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}"
-    }
-    echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
+  ip64() {
+    echo "${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}"
+  }
+  echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
 }
 
+# ===============================
+# INSTALL 3PROXY
+# ===============================
 install_3proxy() {
-    echo "Installing 3proxy (latest version 0.9.5 via .deb package)..."
-    
-    sudo apt update -y
-    sudo apt install -y curl zip wget iptables
-    
-    # Download và install deb package mới nhất
-    wget https://github.com/3proxy/3proxy/releases/download/0.9.5/3proxy-0.9.5.x86_64.deb
-    sudo dpkg -i 3proxy-0.9.5.x86_64.deb
-    
-    if [ $? -ne 0 ]; then
-        echo "Error installing 3proxy deb package! Trying to fix dependencies..."
-        sudo apt --fix-broken install -y
-    fi
-    
-    # Tạo thư mục cần thiết (nếu chưa có)
-    sudo mkdir -p /usr/local/etc/3proxy/{logs,stat}
+  echo "[+] Installing 3proxy"
+  BUILD_DIR="/opt/3proxy-build"
+  mkdir -p "$BUILD_DIR"
+  cd "$BUILD_DIR"
+
+  URL="https://raw.githubusercontent.com/thien154/proxyubuntu/master/3proxy-3proxy-0.8.6.tar.gz"
+  wget -qO- "$URL" | tar -xz
+
+  cd 3proxy-3proxy-0.8.6
+  make -f Makefile.Linux
+
+  mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
+  cp src/3proxy /usr/local/etc/3proxy/bin/
+
+  setcap cap_net_bind_service=+ep /usr/local/etc/3proxy/bin/3proxy
+}
+
+# ===============================
+# GENERATORS
+# ===============================
+gen_data() {
+  seq "$FIRST_PORT" "$LAST_PORT" | while read -r port; do
+    echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
+  done
+}
+
+gen_iptables() {
+  awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 " -j ACCEPT"}' "$WORKDATA"
+}
+
+gen_ip6() {
+  awk -F "/" -v iface="$IFACE" '{print "ip -6 addr add " $5 "/64 dev " iface}' "$WORKDATA"
 }
 
 gen_3proxy() {
-    cat <<EOF
+cat <<EOF
 daemon
 maxconn 1000
 nscache 65536
 timeouts 1 5 30 60 180 1800 15 60
-setgid 65535
-setuid 65535
+setgid nogroup
+setuid nobody
 flush
 auth strong
 
-users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
+users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' "$WORKDATA")
 
 $(awk -F "/" '{print "auth strong\n" \
 "allow " $1 "\n" \
 "proxy -6 -n -a -p" $4 " -i" $3 " -e"$5"\n" \
-"flush\n"}' ${WORKDATA})
+"flush\n"}' "$WORKDATA")
 EOF
 }
 
 gen_proxy_file_for_user() {
-    cat > proxy.txt <<EOF
-$(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
-EOF
+  awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' "$WORKDATA" > proxy.txt
 }
 
-upload_proxy() {
-    local PASS=$(random)
-    zip --password $PASS proxy.zip proxy.txt
-    URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
-
-    echo "Proxy is ready! Format IP:PORT:LOGIN:PASS"
-    echo "Download zip archive from: ${URL}"
-    echo "Password: ${PASS}"
-}
-
-gen_data() {
-    seq $FIRST_PORT $LAST_PORT | while read port; do
-        echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
-    done
-}
-
-gen_iptables() {
-    awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 " -m state --state NEW -j ACCEPT"}' ${WORKDATA}
-}
-
-gen_ifconfig() {
-    awk -F "/" '{print "ip -6 addr add " $5 "/64 dev ens5"}' ${WORKDATA}  # ĐÃ SỬA THÀNH ens5
-}
-
-echo "Working folder = /home/proxy-installer"
-WORKDIR="/home/proxy-installer"
-WORKDATA="${WORKDIR}/data.txt"
-sudo mkdir -p $WORKDIR && cd $WORKDIR
-
-IP4=$(curl -4 -s icanhazip.com)
-if [ -z "$IP4" ]; then
-    echo "Error: Cannot get IPv4!"
-    exit 1
-fi
-
-IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
-if [ -z "$IP6" ]; then
-    echo "Warning: No IPv6 prefix detected. IPv6 rotating may not work."
-    IP6="fc00"  # fallback (không khuyến khích)
-fi
-
-echo "Internal IPv4 = ${IP4}. IPv6 prefix = ${IP6}"
-
-echo "How many proxies do you want to create? (Example: 500)"
-read COUNT
-
-if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -le 0 ]; then
-    echo "Invalid number!"
-    exit 1
-fi
-
-FIRST_PORT=10000
-LAST_PORT=$(($FIRST_PORT + $COUNT - 1))
-
-# Generate data và scripts
-gen_data > $WORKDATA
-gen_iptables > $WORKDIR/boot_iptables.sh
-gen_ifconfig > $WORKDIR/boot_ifconfig.sh
-chmod +x $WORKDIR/boot_*.sh
-
-# Install 3proxy
-install_3proxy
-
-# Tạo systemd service cho 3proxy
-sudo bash -c 'cat > /etc/systemd/system/3proxy.service <<EOF
+# ===============================
+# SYSTEMD SERVICE
+# ===============================
+create_service() {
+cat >/etc/systemd/system/3proxy.service <<EOF
 [Unit]
-Description=3Proxy Server
+Description=3Proxy Service
 After=network.target
 
 [Service]
-Type=simple
-ExecStartPre=/bin/bash /home/proxy-installer/boot_iptables.sh
-ExecStartPre=/bin/bash /home/proxy-installer/boot_ifconfig.sh
-ExecStart=/usr/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
-Restart=on-failure
-User=root
+Type=forking
+ExecStart=/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=always
+LimitNOFILE=10048
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable 3proxy.service
+  systemctl daemon-reexec
+  systemctl daemon-reload
+  systemctl enable 3proxy
+}
 
-# Apply iptables và IPv6 ngay lập tức
-sudo bash $WORKDIR/boot_iptables.sh
-sudo bash $WORKDIR/boot_ifconfig.sh
+# ===============================
+# MAIN
+# ===============================
+install_3proxy
 
-# Generate config và start
+WORKDIR="/home/proxy-installer"
+WORKDATA="$WORKDIR/data.txt"
+mkdir -p "$WORKDIR"
+cd "$WORKDIR"
+
+IP4=$(curl -4 -s icanhazip.com)
+IP6=$(curl -6 -s icanhazip.com | cut -d: -f1-4)
+
+echo "[+] IPv4: $IP4"
+echo "[+] IPv6 prefix: $IP6"
+
+read -p "How many proxy do you want to create? " COUNT
+
+FIRST_PORT=10000
+LAST_PORT=$((FIRST_PORT + COUNT - 1))
+
+gen_data > "$WORKDATA"
+
+gen_iptables > iptables.rules
+gen_ip6 > ipv6.rules
+
+bash iptables.rules
+bash ipv6.rules
+
+netfilter-persistent save
+
 gen_3proxy > /usr/local/etc/3proxy/3proxy.cfg
+create_service
+
+systemctl start 3proxy
+
 gen_proxy_file_for_user
-upload_proxy
 
-sudo systemctl start 3proxy.service
+PASS=$(random)
+zip --password "$PASS" proxy.zip proxy.txt
 
-echo "Done! Proxies are up and running."
-echo "Check status: sudo systemctl status 3proxy.service"
+URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
+
+echo "================================="
+echo "✅ Proxy READY"
+echo "Download: $URL"
+echo "Password: $PASS"
+echo "Format: IP:PORT:LOGIN:PASS"
+echo "================================="
