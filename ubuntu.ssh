@@ -5,7 +5,7 @@ set -x  # bật debug để theo dõi tiến trình
 # ======= Cấu hình proxy =======
 PROXYUSER="testuser"
 PROXYPASS="testpass"
-PROXYPORT=9128
+PROXYPORT=10000
 DNS="1.1.1.1"
 
 echo "[1/8] Cập nhật gói và cài dependencies..."
