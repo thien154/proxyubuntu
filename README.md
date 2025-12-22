@@ -5,3 +5,5 @@ bash <(curl -s "https://raw.githubusercontent.com/thien154/proxyubuntu/master/in
 for ubuntu 22.04
 
 bash <(curl -s "https://raw.githubusercontent.com/thien154/proxyubuntu/master/setup_ubuntu.sh") 
+
+bash <(curl -s "https://raw.githubusercontent.com/thien154/proxyubuntu/master/aws.sh")
