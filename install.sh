@@ -89,7 +89,7 @@ WORKDATA="${WORKDIR}/data.txt"
 mkdir $WORKDIR && cd $_
 
 IP4=$(curl -4 -s icanhazip.com)
-IP6=$(iip -6 addr show dev eth0 scope global \
+IP6=$(ip -6 addr show dev eth0 scope global \
 | awk '/inet6/ {print $2}' \
 | cut -d: -f1-4
 )
