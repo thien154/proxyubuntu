@@ -1,56 +1,50 @@
 #!/bin/bash
 set -e
 
-echo "=== Installing 3proxy v0.9.5 (latest stable) ==="
+echo "=== Installing 3proxy v0.9.5 clean ==="
 
-# Ask for basic proxy config
-read -p "Enter proxy username: " PROXYUSER
-read -p "Enter proxy password: " PROXYPASS
-read -p "Enter proxy listening port (default 9128): " PROXYPORT
+# Ask for proxy config
+read -p "Enter Proxy Username: " PROXYUSER
+read -p "Enter Proxy Password: " PROXYPASS
+read -p "Enter Proxy Port (Default 9128): " PROXYPORT
 PROXYPORT=${PROXYPORT:-9128}
 
-if [[ -z "$PROXYUSER" ]] || [[ -z "$PROXYPASS" ]]; then
-  echo "Username and password are required."
-  exit 1
-fi
+# Detect nameserver
+DEFAULTNS=$(grep -m1 nameserver /etc/resolv.conf | awk '{print $2}')
+read -p "Enter DNS server (Autodetected $DEFAULTNS): " DNS
+DNS=${DNS:-$DEFAULTNS}
 
-echo "Updating system..."
+# Install dependencies
 sudo apt-get update
-sudo apt-get install -y build-essential git gawk wget zip
+sudo apt-get install -y build-essential gawk wget zip
 
-# Download latest 3proxy (0.9.5)
+# Download and build 3proxy 0.9.5
 TMPDIR=$(mktemp -d)
 cd $TMPDIR
-
-echo "Downloading 3proxy 0.9.5 source..."
 wget -q https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz -O 3proxy-0.9.5.tar.gz
-
-echo "Extracting source..."
 tar xzf 3proxy-0.9.5.tar.gz
 cd 3proxy-0.9.5
-
-echo "Building 3proxy..."
 make -f Makefile.Linux
 
-echo "Installing proxy binary..."
-sudo mkdir -p /usr/local/bin
+# Install binary
 sudo cp bin/3proxy /usr/local/bin/3proxy
 sudo chmod +x /usr/local/bin/3proxy
 
 # Create system user
 sudo adduser --system --no-create-home --disabled-login --group proxy3
 
-# Create config directory
+# Create config folder
 sudo mkdir -p /etc/3proxy
 sudo chown proxy3:proxy3 /etc/3proxy
 
-echo "Generating 3proxy config..."
-sudo tee /etc/3proxy/3proxy.cfg > /dev/null <<EOF
-# 3proxy v0.9.5 basic config
+# Create config file (sudo bash -c ensures proper permissions)
+sudo bash -c "cat > /etc/3proxy/3proxy.cfg <<EOF
+nserver $DNS
+nserver 8.8.8.8
 nscache 65536
 timeouts 1 5 30 60 180 1800 15 60
 log /var/log/3proxy/3proxy.log D
-logformat "- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T"
+logformat \"- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T\"
 
 users $PROXYUSER:CL:$PROXYPASS
 auth strong
@@ -58,16 +52,14 @@ allow $PROXYUSER
 
 proxy -n -a -p$PROXYPORT
 flush
-EOF
+EOF"
 
 sudo mkdir -p /var/log/3proxy
 sudo chown proxy3:proxy3 /var/log/3proxy
-
-echo "Setting permissions..."
 sudo chmod 600 /etc/3proxy/3proxy.cfg
 
-echo "Creating systemd service..."
-sudo tee /etc/systemd/system/3proxy.service > /dev/null <<EOF
+# Create systemd service
+sudo bash -c "cat > /etc/systemd/system/3proxy.service <<EOF
 [Unit]
 Description=3proxy Proxy Server
 After=network.target
@@ -82,17 +74,16 @@ Group=proxy3
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF"
 
-echo "Reloading systemd..."
+# Reload and start service
 sudo systemctl daemon-reload
 sudo systemctl enable 3proxy
 sudo systemctl start 3proxy
 
-echo ""
-echo "=== 3proxy 0.9.5 Installed Successfully! ==="
+echo "=== 3proxy 0.9.5 installed successfully ==="
 echo "Username: $PROXYUSER"
 echo "Password: $PROXYPASS"
 echo "Port: $PROXYPORT"
-echo "Check status with: sudo systemctl status 3proxy"
-echo "Logs at: /var/log/3proxy/3proxy.log"
+echo "Check status: sudo systemctl status 3proxy"
+echo "Logs: /var/log/3proxy/3proxy.log"
