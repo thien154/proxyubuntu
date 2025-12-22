@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
-set -x  # bật debug, in ra mọi lệnh
+set -x  # bật debug để theo dõi tiến trình
 
 # ======= Cấu hình proxy =======
 PROXYUSER="testuser"
 PROXYPASS="testpass"
-PROXYPORT=10000
+PROXYPORT=9128
 DNS="1.1.1.1"
 
 echo "[1/8] Cập nhật gói và cài dependencies..."
@@ -28,7 +28,7 @@ make -f Makefile.Linux | tee -a /tmp/3proxy_install.log
 echo "[5/8] Copy binary và tạo user system..."
 sudo cp bin/3proxy /usr/local/bin/3proxy
 sudo chmod +x /usr/local/bin/3proxy
-sudo adduser --system --no-create-home --disabled-login --group proxy3
+sudo adduser --system --no-create-home --disabled-login --group proxy3 || true
 
 # ======= Tạo folder config & log =======
 echo "[6/8] Tạo folder config và log..."
@@ -36,8 +36,16 @@ sudo mkdir -p /etc/3proxy
 sudo mkdir -p /var/log/3proxy
 sudo chown -R proxy3:proxy3 /etc/3proxy /var/log/3proxy
 
-# ======= Tạo config file =======
-echo "[7/8] Tạo file config /etc/3proxy/3proxy.cfg..."
+# ======= Tạo file .proxyauth =======
+echo "[7/8] Tạo file /etc/3proxy/.proxyauth..."
+sudo bash -c "cat > /etc/3proxy/.proxyauth <<EOF
+$PROXYUSER:CL:$PROXYPASS
+EOF"
+sudo chmod 600 /etc/3proxy/.proxyauth
+sudo chown proxy3:proxy3 /etc/3proxy/.proxyauth
+
+# ======= Tạo file 3proxy.cfg =======
+echo "[8/8] Tạo file /etc/3proxy/3proxy.cfg..."
 sudo bash -c "cat > /etc/3proxy/3proxy.cfg <<EOF
 nserver $DNS
 nserver 8.8.8.8
@@ -46,19 +54,19 @@ timeouts 1 5 30 60 180 1800 15 60
 log /var/log/3proxy/3proxy.log D
 logformat \"- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T\"
 
-users $PROXYUSER:CL:$PROXYPASS
+users \$$(/etc/3proxy/.proxyauth)
 auth strong
 allow $PROXYUSER
 
 proxy -n -a -p$PROXYPORT
+#proxy -n -a -p10000 -i47.129.88.174 -e2406:da18:11f1:4100::1
+
 flush
 EOF"
-
 sudo chmod 600 /etc/3proxy/3proxy.cfg
 sudo chown proxy3:proxy3 /etc/3proxy/3proxy.cfg
 
 # ======= Tạo systemd service =======
-echo "[8/8] Tạo systemd service 3proxy..."
 sudo bash -c "cat > /etc/systemd/system/3proxy.service <<EOF
 [Unit]
 Description=3proxy Proxy Server
