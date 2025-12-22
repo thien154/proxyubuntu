@@ -54,7 +54,7 @@ timeouts 1 5 30 60 180 1800 15 60
 log /var/log/3proxy/3proxy.log D
 logformat \"- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T\"
 
-users \$$(/etc/3proxy/.proxyauth)
+users $/etc/3proxy/.proxyauth
 auth strong
 allow $PROXYUSER
 
@@ -86,7 +86,7 @@ EOF"
 
 sudo systemctl daemon-reload
 sudo systemctl enable 3proxy
-sudo systemctl start 3proxy
+sudo systemctl restart 3proxy
 
 echo "=========================================="
 echo "3proxy v0.9.5 đã cài xong!"
