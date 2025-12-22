@@ -1,43 +1,43 @@
 #!/bin/bash
 set -e
+set -x  # bật debug, in ra mọi lệnh
 
-echo "=== Installing 3proxy v0.9.5 clean ==="
+# ======= Cấu hình proxy =======
+PROXYUSER="testuser"
+PROXYPASS="testpass"
+PROXYPORT=10000
+DNS="1.1.1.1"
 
-# Ask for proxy config
-read -p "Enter Proxy Username: " PROXYUSER
-read -p "Enter Proxy Password: " PROXYPASS
-read -p "Enter Proxy Port (Default 9128): " PROXYPORT
-PROXYPORT=${PROXYPORT:-9128}
+echo "[1/8] Cập nhật gói và cài dependencies..."
+sudo apt-get update | tee /tmp/3proxy_install.log
+sudo apt-get install -y build-essential gawk wget zip | tee -a /tmp/3proxy_install.log
 
-# Detect nameserver
-DEFAULTNS=$(grep -m1 nameserver /etc/resolv.conf | awk '{print $2}')
-read -p "Enter DNS server (Autodetected $DEFAULTNS): " DNS
-DNS=${DNS:-$DEFAULTNS}
-
-# Install dependencies
-sudo apt-get update
-sudo apt-get install -y build-essential gawk wget zip
-
-# Download and build 3proxy 0.9.5
+# ======= Download và build 3proxy =======
 TMPDIR=$(mktemp -d)
 cd $TMPDIR
-wget -q https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz -O 3proxy-0.9.5.tar.gz
-tar xzf 3proxy-0.9.5.tar.gz
-cd 3proxy-0.9.5
-make -f Makefile.Linux
+echo "[2/8] Download 3proxy v0.9.5..."
+wget -q https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz -O 3proxy-0.9.5.tar.gz | tee -a /tmp/3proxy_install.log
 
-# Install binary
+echo "[3/8] Giải nén source..."
+tar xzf 3proxy-0.9.5.tar.gz | tee -a /tmp/3proxy_install.log
+cd 3proxy-0.9.5
+
+echo "[4/8] Build 3proxy..."
+make -f Makefile.Linux | tee -a /tmp/3proxy_install.log
+
+echo "[5/8] Copy binary và tạo user system..."
 sudo cp bin/3proxy /usr/local/bin/3proxy
 sudo chmod +x /usr/local/bin/3proxy
-
-# Create system user
 sudo adduser --system --no-create-home --disabled-login --group proxy3
 
-# Create config folder
+# ======= Tạo folder config & log =======
+echo "[6/8] Tạo folder config và log..."
 sudo mkdir -p /etc/3proxy
-sudo chown proxy3:proxy3 /etc/3proxy
+sudo mkdir -p /var/log/3proxy
+sudo chown -R proxy3:proxy3 /etc/3proxy /var/log/3proxy
 
-# Create config file (sudo bash -c ensures proper permissions)
+# ======= Tạo config file =======
+echo "[7/8] Tạo file config /etc/3proxy/3proxy.cfg..."
 sudo bash -c "cat > /etc/3proxy/3proxy.cfg <<EOF
 nserver $DNS
 nserver 8.8.8.8
@@ -54,11 +54,11 @@ proxy -n -a -p$PROXYPORT
 flush
 EOF"
 
-sudo mkdir -p /var/log/3proxy
-sudo chown proxy3:proxy3 /var/log/3proxy
 sudo chmod 600 /etc/3proxy/3proxy.cfg
+sudo chown proxy3:proxy3 /etc/3proxy/3proxy.cfg
 
-# Create systemd service
+# ======= Tạo systemd service =======
+echo "[8/8] Tạo systemd service 3proxy..."
 sudo bash -c "cat > /etc/systemd/system/3proxy.service <<EOF
 [Unit]
 Description=3proxy Proxy Server
@@ -76,14 +76,16 @@ Group=proxy3
 WantedBy=multi-user.target
 EOF"
 
-# Reload and start service
 sudo systemctl daemon-reload
 sudo systemctl enable 3proxy
 sudo systemctl start 3proxy
 
-echo "=== 3proxy 0.9.5 installed successfully ==="
+echo "=========================================="
+echo "3proxy v0.9.5 đã cài xong!"
 echo "Username: $PROXYUSER"
 echo "Password: $PROXYPASS"
 echo "Port: $PROXYPORT"
-echo "Check status: sudo systemctl status 3proxy"
-echo "Logs: /var/log/3proxy/3proxy.log"
+echo "Log install chi tiết: /tmp/3proxy_install.log"
+echo "Kiểm tra status: sudo systemctl status 3proxy"
+echo "Kiểm tra log proxy: tail -f /var/log/3proxy/3proxy.log"
+echo "=========================================="
